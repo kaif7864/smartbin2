@@ -24,7 +24,9 @@ LIVE_URL  = f"http://{SERVER_IP}:{PORT}/live"  # Permanent URL
 print("Models load ho rahe hain...")
 yolo_model = YOLO("yolov8n.pt")
 
-classifier = load_model("P:\Flutter\smart_bin\services\efficientnetv2b2.keras")
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+# Model ka path dynamic rakho taki server pe chal sake
+classifier = load_model(os.path.join(BASE_DIR, "..", "services", "efficientnetv2b2.keras"))
 
 CLASS_NAMES = ["cardboard", "glass", "metal", "paper", "plastic", "trash"]
 
