@@ -11,9 +11,9 @@ app = FastAPI()
 os.makedirs("captures", exist_ok=True)
 
 # ── Config ────────────────────────────────────────────
-SERVER_IP = "10.187.209.171"
-PORT      = 8000
-LIVE_URL  = f"http://{SERVER_IP}:{PORT}/live"  # Permanent URL
+SERVER_IP = os.environ.get("SERVER_IP", "127.0.0.1")
+PORT      = int(os.environ.get("PORT", 8000))
+LIVE_URL  = f"http://{SERVER_IP}:{PORT}/live" if "SERVER_IP" in os.environ else f"http://127.0.0.1:{PORT}/live"
 
 # ── Models ────────────────────────────────────────────
 print("Models load ho rahe hain...")
