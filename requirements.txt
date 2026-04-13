@@ -6,10 +6,10 @@ python-dotenv==1.2.2
 pymongo==4.16.0
 qrcode==8.2
 requests==2.33.1
-# AI Libraries - CPU optimized versions
+# AI Libraries - Versions fixed for Python 3.11
 numpy>=1.23.5,<2.0.0
 tensorflow-cpu==2.16.1
-tf_keras==2.16.1
+tf_keras>=2.16.0,<2.17.0
 Pillow
 opencv-python-headless
 cloudinary
