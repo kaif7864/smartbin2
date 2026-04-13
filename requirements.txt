@@ -6,13 +6,10 @@ python-dotenv==1.2.2
 pymongo==4.16.0
 qrcode==8.2
 requests==2.33.1
-# AI Libraries
+# AI Libraries - CPU optimized versions
 numpy>=1.23.5,<2.0.0
-tensorflow==2.16.1
+tensorflow-cpu==2.16.1
 tf_keras==2.16.1
 Pillow
 opencv-python-headless
-# Add these ONLY if you see them in your "import" lines:
-firebase-admin
-ultralytics
 cloudinary
