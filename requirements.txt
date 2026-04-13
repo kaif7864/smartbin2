@@ -14,3 +14,4 @@ Pillow
 opencv-python-headless
 cloudinary
 firebase-admin
+ultralytics
