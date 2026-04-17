@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
+from datetime import datetime
 import qrcode, uuid, os, cv2
 from io import BytesIO
 import base64
@@ -33,7 +34,7 @@ try:
     yolo_model = YOLO("yolov8n.pt")
     
     # 2. Classifier Path & Load
-    model_path = os.path.normpath(os.path.join(BASE_DIR, "..", "services", "efficientnetv2b2.keras"))
+    model_path = os.path.normpath(os.path.join(BASE_DIR, "..", "services", "Effiicientnet_smartbin.keras"))
     
     if os.path.exists(model_path):
         classifier = load_model(model_path)
@@ -45,15 +46,8 @@ except Exception as e:
     
 
 CLASS_NAMES = ["cardboard", "glass", "metal", "paper", "plastic", "trash"]
+from database import db, POINTS_MAP
 
-POINTS_MAP = {
-    "cardboard": 10,
-    "glass":     15,
-    "metal":     20,
-    "paper":     8,
-    "plastic":   12,
-    "trash":     2,
-}
 
 # ── State — sirf latest reading store hogi ────────────
 latest_reading = {}   # hamesha overwrite hota rahega
@@ -93,6 +87,10 @@ def preprocess(img):
 def classify_image(img_path):
     frame = cv2.imread(img_path)
     if frame is None:
+        return "unknown", 0.0
+
+    if yolo_model is None:
+        print("[ERROR] YOLO model not loaded!")
         return "unknown", 0.0
 
     H, W      = frame.shape[:2]
@@ -152,6 +150,10 @@ def classify_image(img_path):
 
     cv2.imwrite("captures/debug_crop.jpg", best_crop)
 
+    if classifier is None:
+        print("[ERROR] Classifier model not loaded!")
+        return "unknown", 0.0
+
     inp   = preprocess(best_crop)
     preds = classifier.predict(inp, verbose=0)
 
@@ -179,10 +181,28 @@ def make_qr_b64(data):
 
 @router.post("/api/reading")
 async def receive_reading(
+    bin_id: str        = Form("SB-MAIN-01"),
     weight: float      = Form(...),
+    battery: int       = Form(100),
+    rssi: int          = Form(-50),
     image:  UploadFile = File(...)
 ):
+    print(f"[DEBUG] Request received at {datetime.now()}") 
+    # Read image for debug size, then seek back to start
+    img_content = await image.read()
+    await image.seek(0)
+    print(f"[DEBUG] Image size: {len(img_content)}")
     global latest_reading
+    # 1. Update Bin Hardware Status in DB
+    db.bins.update_one(
+        {"bin_id": bin_id},
+        {"$set": {
+            "battery": battery,
+            "rssi": rssi,
+            "last_active": datetime.now()
+        }},
+        upsert=True
+    )
 
     reading_id = str(uuid.uuid4())[:8]
 
@@ -206,17 +226,22 @@ async def receive_reading(
         "valid":      confidence > 0.5 and waste_type != "trash",
     }
 
+    # 4. Store in Dedicated IoT Collection (Database)
+    db.iot_readings.insert_one({
+        "reading_id": reading_id,
+        "bin_id":     bin_id,
+        "type":       waste_type,
+        "weight":     weight,
+        "points":     points,
+        "image":      img_path,
+        "is_claimed": False,
+        "timestamp":  datetime.now()
+    })
+
     all_readings.append(latest_reading.copy())
 
-    # ESP32 ko QR data bhejo
-    qr_data = {
-        "reading_id": reading_id,
-        "waste_type": waste_type,
-        "points": points,
-        "weight_g": weight,
-        "confidence": round(confidence * 100, 1),
-        "valid": confidence > 0.5 and waste_type != "trash"
-    }
+    # ESP32 ko QR data bhejo (Sirf ID)
+    qr_data = reading_id
     
     return JSONResponse({
         "reading_id":    reading_id,
@@ -272,17 +297,8 @@ async def live_page():
     valid_text  = "Valid" if d["valid"] else "Invalid"
     img_b64     = img_to_b64(d["image"])
 
-    # QR mein JSON data encode karo
-    qr_data = {
-        "id": d["id"],
-        "waste_type": d["waste_type"],
-        "points": d["points"],
-        "weight": d["weight"],
-        "confidence": d["confidence"],
-        "valid": d["valid"]
-    }
-    qr_json_str = json.dumps(qr_data)
-    qr_b64 = make_qr_b64(qr_json_str)
+    # QR mein sirf Reading ID encode karo
+    qr_b64 = make_qr_b64(d["id"])
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html>

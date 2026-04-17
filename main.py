@@ -15,6 +15,11 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+from fastapi.staticfiles import StaticFiles
+import os
+
+app.mount("/captures", StaticFiles(directory="captures"), name="captures")
+
 app.include_router(user.router, prefix="/user")
 app.include_router(scan.router, prefix="/iot")
 app.include_router(admin.router, prefix="/admin")
