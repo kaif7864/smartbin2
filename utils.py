@@ -1,11 +1,41 @@
-import os, requests
+import os, requests, json
+import firebase_admin
+from firebase_admin import credentials, messaging
 
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-# Note: Twilio Verify Service SID hum sirf OTP ke liye use karte hain. 
-# Normal SMS ke liye Twilio ka "Messaging Service SID" ya phone number lagta hai.
-# Magar hum Twilio Verify se hi status notifications bhi bhej sakte hain agar 
-# humne custom notifications enable ki hon, ya fir plain SMS API use karenge.
+
+# Initialize Firebase Admin SDK
+try:
+    if not firebase_admin._apps:
+        firebase_creds = os.getenv("FIREBASE_CREDENTIALS")
+        if firebase_creds:
+            cred_dict = json.loads(firebase_creds)
+            cred = credentials.Certificate(cred_dict)
+        else:
+            cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred)
+except Exception as e:
+    print(f"Firebase Admin Init Error: {e}")
+
+def send_push_notification(fcm_token: str, title: str, body: str):
+    """Sends a push notification via Firebase Cloud Messaging"""
+    if not fcm_token: return False
+    
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            token=fcm_token,
+        )
+        response = messaging.send(message)
+        print(f"Successfully sent push notification: {response}")
+        return True
+    except Exception as e:
+        print(f"Error sending push notification: {e}")
+        return False
 
 def send_sms_notification(to_phone: str, message: str):
     """Sends a standard SMS notification using Twilio REST API"""
@@ -13,19 +43,13 @@ def send_sms_notification(to_phone: str, message: str):
         print("Twilio credentials missing!")
         return False
     
-    # Format phone
     if not to_phone.startswith("+"):
         to_phone = f"+91{to_phone}" if len(to_phone) == 10 else f"+{to_phone}"
 
-    # We can use Twilio Messages API
-    # Note: Requires a Twilio Phone Number or Alphanumeric Sender ID
-    # For now, let's try the simple messages endpoint.
     url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json"
     
-    # We'll use the TWILIO_FROM_NUMBER from env
     from_number = os.getenv("TWILIO_FROM_NUMBER")
     if not from_number:
-        # Fallback to alphanumeric but warn it might fail in India on trial
         from_number = "SmartId" 
 
     data = {
@@ -33,9 +57,6 @@ def send_sms_notification(to_phone: str, message: str):
         "From": from_number,
         "Body": message
     }
-    
-    # If using trial, we might need to use a Twilio purchased number.
-    # I will assume the user has a Messaging setup or I'll use simple print logs if it fails.
     
     try:
         resp = requests.post(url, auth=(TWILIO_SID, TWILIO_TOKEN), data=data)
@@ -48,3 +69,18 @@ def send_sms_notification(to_phone: str, message: str):
     except Exception as e:
         print(f"SMS Error: {e}")
         return False
+
+def notify_user(user: dict, title: str, message: str):
+    """Multi-channel notification (Push first, then SMS)"""
+    success = False
+    
+    # Try Push first (Instant & Free)
+    if user.get("fcm_token"):
+        success = send_push_notification(user["fcm_token"], title, message)
+    
+    # Always send SMS if user wants or as backup (optional logic)
+    # For now, let's just use SMS if push fails or as secondary
+    if not success and user.get("phone"):
+        send_sms_notification(user["phone"], message)
+    
+    return success

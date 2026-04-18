@@ -120,7 +120,7 @@ def _get_user_bundle(user_id: str):
     lifetime = user.get("total_reward", 0)
     
     # 2. Impact
-    total_weight = sum(log.get("weight", 0) for log in logs)
+    total_weight = sum(float(str(log.get("weight", 0)).replace("g", "").strip() or 0) for log in logs)
     total_weight_kg = total_weight / 1000.0
     co2_saved = total_weight_kg * 0.5 
     bins_visited = len(set(log.get("bin_id") for log in logs if log.get("bin_id")))
@@ -151,7 +151,7 @@ def _get_user_bundle(user_id: str):
         "title": log.get("title") or f"{log.get('garbage_type', 'Waste').capitalize()} Deposit",
         "subtitle": log.get("bin_address", "SmartBin"),
         "reward": log.get("reward", 0),
-        "status": log.get("status", "pending"),
+        "status": "paid" if log.get("payment_status") == "paid" else log.get("status", "pending"),
         "timestamp": str(log.get("timestamp", "")),
         "weight": log.get("weight", 0)
     } for log in recent]
@@ -302,6 +302,49 @@ def register_user(data: dict):
         "bundle":  _get_user_bundle(user_id)
     }
 
+# POST /redeem-request
+@router.post("/redeem-request")
+def request_redemption(data: dict):
+    user_id = data.get("user_id")
+    if not user_id: raise HTTPException(status_code=400, detail="User ID required")
+    
+    user = db.users.find_one({"user_id": user_id})
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    
+    # 1. Sum up all Approved & Unpaid rewards
+    logs = list(db.logs.find({"user_id": user_id, "status": "approved", "payment_status": "unpaid"}))
+    total_requested = sum(log.get("reward", 0) for log in logs)
+    
+    if total_requested < 50:
+        raise HTTPException(status_code=400, detail="Minimum ₹50 required to redeem")
+        
+    # 2. Mark them as "redeem_sent" for admin visibility
+    db.logs.update_many(
+        {"user_id": user_id, "status": "approved", "payment_status": "unpaid"},
+        {"$set": {"redemption_requested_at": datetime.now()}}
+    )
+    
+    return {"message": "Redemption request sent to admin", "amount": total_requested}
+
+# GET /stories
+@router.get("/stories")
+def get_stories():
+    return [
+        {"id": "1", "title": "Plastic Waste", "icon": "🧴", "tip": "Did you know? A plastic bottle takes 450 years to decompose."},
+        {"id": "2", "title": "CO2 Impact", "icon": "🌍", "tip": "Recycling 1 ton of paper saves 17 trees and prevents CO2 emission."},
+        {"id": "3", "title": "Metal Power", "icon": "🥫", "tip": "Aluminum cans save 95% energy when recycled vs new production."},
+        {"id": "4", "title": "Planet Hero", "icon": "✨", "tip": "Every item you deposit helps reduce landfill waste. You are a Hero!"},
+    ]
+
+@router.post("/update-fcm")
+def update_fcm(data: dict):
+    user_id = data.get("user_id")
+    fcm_token = data.get("fcm_token")
+    if not user_id or not fcm_token:
+        raise HTTPException(status_code=400, detail="User ID and FCM Token required")
+    
+    db.users.update_one({"user_id": user_id}, {"$set": {"fcm_token": fcm_token}})
+    return {"status": "success", "message": "FCM token updated"}
 
 @router.get("/profile/{user_id}")
 def get_profile(user_id: str):
@@ -485,7 +528,7 @@ def get_user_stats(user_id: str):
     lifetime = user.get("total_reward", 0)
     
     # Recycling stats
-    total_weight = sum(log.get("weight", 0) for log in logs)
+    total_weight = sum(float(str(log.get("weight", 0)).replace("g", "").strip() or 0) for log in logs)
     total_weight_kg = total_weight / 1000.0
     co2_saved = total_weight_kg * 0.5 # 0.5kg CO2 per 1kg recycled
     
@@ -502,7 +545,7 @@ def get_user_stats(user_id: str):
         "title": f"{log.get('garbage_type', 'Waste').capitalize()} Deposit",
         "subtitle": log.get("bin_address", "SmartBin"),
         "reward": log.get("reward", 0),
-        "status": log.get("status", "pending"),
+        "status": "paid" if log.get("payment_status") == "paid" else log.get("status", "pending"),
         "timestamp": str(log.get("timestamp", "")),
         "weight": log.get("weight", 0)
     } for log in recent]

@@ -14,4 +14,5 @@ Pillow
 opencv-python-headless
 cloudinary
 firebase-admin
-ultralyticspython-jose[cryptography]
+ultralytics
+python-jose[cryptography]

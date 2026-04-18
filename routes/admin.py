@@ -125,6 +125,7 @@ def get_deposits(status: str = None, page: int = 1, limit: int = 20):
         if status == "paid": query["payment_status"] = "paid"
         elif status == "approved": query = {"status": "approved", "payment_status": "unpaid"}
         elif status == "rejected": query["status"] = "rejected"
+        elif status.lower() == "all": query = {}
         else: query = {"status": "pending", "payment_status": {"$ne": "paid"}}
     skip  = (page - 1) * limit
     total = db.logs.count_documents(query)
@@ -206,10 +207,10 @@ def reject_deposit(deposit_id: str, data: dict = {}):
     db.logs.update_one({"_id": ObjectId(deposit_id)}, {"$set": {"status": "rejected", "rejection_reason": reason}})
     log = db.logs.find_one({"_id": ObjectId(deposit_id)})
     user = db.users.find_one({"user_id": log["user_id"]})
-    if user and user.get("phone"):
-        from utils import send_sms_notification
+    if user:
+        from utils import notify_user
         msg = f"Hi {user.get('name', 'User')}, your SmartBin deposit was rejected. Reason: {reason or 'Verification failed'}."
-        send_sms_notification(user["phone"], msg)
+        notify_user(user, "Deposit Rejected ❌", msg)
     return {"message": "Deposit rejected"}
 
 # ══════════════════════════════════════════════════════════════
@@ -256,10 +257,10 @@ def send_payment(data: dict):
     })
     db.users.update_one({"user_id": log["user_id"]}, {"$inc": {"total_reward": amount}})
     user = db.users.find_one({"user_id": log["user_id"]})
-    if user and user.get("phone"):
-        from utils import send_sms_notification
+    if user:
+        from utils import notify_user
         msg = f"Hi {user.get('name', 'User')}, your reward of ₹{amount} has been sent! Ref: {txn_ref}"
-        send_sms_notification(user["phone"], msg)
+        notify_user(user, "Payment Sent! 💰", msg)
     return {"message": "Payment marked as sent", "txn_ref": txn_ref, "upi_id":  upi_id, "amount":  amount}
 
 # ══════════════════════════════════════════════════════════════
@@ -417,7 +418,10 @@ def get_ai_insights():
     growth = "Recycling activity is stable."
     if len(recent_logs) > 50: growth = "Collection has increased by 15% this week! Great community engagement."
     elif len(recent_logs) < 10: growth = "Recycling is slow this week. Consider sending a system broadcast."
-    return {"bin_alert": bin_alert, "trend_insight": growth, "efficiency_score": "94%", "active_users_today": db.logs.distinct("user_id", {"timestamp": {"$gte": now.replace(hour=0, minute=0, second=0)}}).__len__()}
+    active_user_ids = db.logs.distinct("user_id", {"timestamp": {"$gte": now.replace(hour=0, minute=0, second=0)}})
+    real_active_count = db.users.count_documents({"user_id": {"$in": active_user_ids}})
+    
+    return {"bin_alert": bin_alert, "trend_insight": growth, "efficiency_score": "94%", "active_users_today": real_active_count}
 
 @router.get("/notifications")
 def get_user_notifications(user_id: str):
